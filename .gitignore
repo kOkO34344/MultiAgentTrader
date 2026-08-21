@@ -1,0 +1,30 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Runtime state (regenerated every run)
+logs/
+data/
+*.db
+*.sqlite3
+monitor/heartbeat.json
+monitor/state.db
+
+# OS / editor
+.DS_Store
+.idea/
+*.swp

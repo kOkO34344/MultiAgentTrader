@@ -1,0 +1,68 @@
+{
+  "schema_version": "1.0.0",
+  "updated_at": null,
+  "active_experiment_id": "baseline-v1",
+  "experiments": [
+    {
+      "id": "baseline-v1",
+      "description": "Baseline conservative desk: regime-gated defined-risk options playbooks, 3 trades/day cap, 30% cash buffer. The control run every other experiment is measured against.",
+      "created_at": "2026-08-21T00:00:00Z",
+      "config_version": "1.0.0",
+      "prompt_versions": {
+        "orchestrator": "1.0.0",
+        "fundamental_analyst": "1.0.0",
+        "technical_analyst": "1.0.0",
+        "sentiment_analyst": "1.0.0",
+        "vol_options_strategist": "1.0.0",
+        "regime_agent": "1.0.0",
+        "event_agent": "1.0.0",
+        "critic": "1.0.0",
+        "risk_guard": "1.0.0",
+        "coach_agent": "1.0.0",
+        "storyteller_agent": "1.0.0"
+      },
+      "universe": [
+        "SPY",
+        "QQQ",
+        "IWM",
+        "AAPL",
+        "MSFT",
+        "NVDA",
+        "AMD",
+        "AMZN",
+        "META",
+        "GOOGL",
+        "TSLA"
+      ],
+      "risk_limits": {
+        "max_notional_per_trade": 2500.0,
+        "max_notional_total": 20000.0,
+        "max_exposure_per_ticker": 5000.0,
+        "max_contracts_per_ticker": 10,
+        "max_delta_total": 250.0,
+        "max_gamma_total": 25.0,
+        "max_vega_total": 800.0,
+        "min_days_to_expiry": 7
+      },
+      "regimes_used": [
+        "trend_up",
+        "trend_down",
+        "range",
+        "high_vol_event"
+      ],
+      "playbooks_used": [
+        "bull_call_spread",
+        "bull_put_credit_spread",
+        "bear_put_spread",
+        "bear_call_credit_spread",
+        "iron_condor",
+        "long_straddle",
+        "stand_aside"
+      ],
+      "notes": "Seed entry. Populated by `desk backtest` and `desk run-cycle`.",
+      "backtest_results": null,
+      "live_results": null,
+      "runs": []
+    }
+  ]
+}

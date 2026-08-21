@@ -1,0 +1,202 @@
+# ===========================================================================
+# Options playbooks — the desk's strategy library, keyed by market regime.
+#
+# The Volatility & Options Strategist may only build structures listed under
+# the ACTIVE regime. Every playbook must have a bounded max_loss: the Risk
+# Guard hard-rejects undefined-risk structures regardless of what any agent
+# proposes.
+# ===========================================================================
+
+version: "1.0.0"
+
+defaults:
+  contract_multiplier: 100
+  target_days_to_expiry: 30
+  min_credit_to_width: 0.15      # credit spreads: min credit as % of width
+                                 # (a 0.20/0.10-delta spread collects ~15-20%)
+  max_debit_to_width: 0.45       # debit spreads: max debit as % of width
+  max_width_pct: 0.06            # strike width as a fraction of spot (scales across the universe)
+  profit_target_pct: 0.55        # close at 55% of max profit
+  stop_loss_multiple: 2.0        # close at 2x credit received
+  time_stop_dte: 10              # close anything with <=10 DTE
+
+# ---------------------------------------------------------------------------
+regimes:
+
+  # -------------------------------------------------------------------------
+  trend_up:
+    description: >
+      Benchmark above rising EMAs with ADX confirming directional strength.
+      Express bullish delta with DEFINED risk. Prefer debit spreads when IV
+      rank is low, put credit spreads when IV rank is elevated.
+    bias: "bullish"
+    playbooks:
+      - name: "bull_call_spread"
+        type: "vertical_debit"
+        legs:
+          - { side: "buy",  right: "call", target_delta: 0.40 }
+          - { side: "sell", right: "call", target_delta: 0.20 }
+        dte: { min: 21, max: 45 }
+        conditions: { iv_rank_max: 0.50 }
+        sizing: { max_contracts: 3, max_debit_per_spread: 300 }
+        exits: { profit_target_pct: 0.60, stop_loss_pct: 0.55, time_stop_dte: 10 }
+
+      - name: "bull_put_credit_spread"
+        type: "vertical_credit"
+        legs:
+          - { side: "sell", right: "put", target_delta: 0.25 }
+          - { side: "buy",  right: "put", target_delta: 0.12 }
+        dte: { min: 21, max: 45 }
+        conditions: { iv_rank_min: 0.35 }
+        sizing: { max_contracts: 3, max_width_pct: 0.06 }
+        exits: { profit_target_pct: 0.55, stop_loss_multiple: 2.0, time_stop_dte: 10 }
+
+  # -------------------------------------------------------------------------
+  trend_down:
+    description: >
+      Benchmark below falling EMAs with ADX confirming. Express bearish delta
+      with defined risk, or hedge existing long exposure.
+    bias: "bearish"
+    playbooks:
+      - name: "bear_put_spread"
+        type: "vertical_debit"
+        legs:
+          - { side: "buy",  right: "put", target_delta: 0.40 }
+          - { side: "sell", right: "put", target_delta: 0.20 }
+        dte: { min: 21, max: 45 }
+        conditions: { iv_rank_max: 0.55 }
+        sizing: { max_contracts: 3, max_debit_per_spread: 300 }
+        exits: { profit_target_pct: 0.60, stop_loss_pct: 0.55, time_stop_dte: 10 }
+
+      - name: "bear_call_credit_spread"
+        type: "vertical_credit"
+        legs:
+          - { side: "sell", right: "call", target_delta: 0.25 }
+          - { side: "buy",  right: "call", target_delta: 0.12 }
+        dte: { min: 21, max: 45 }
+        conditions: { iv_rank_min: 0.35 }
+        sizing: { max_contracts: 3, max_width_pct: 0.06 }
+        exits: { profit_target_pct: 0.55, stop_loss_multiple: 2.0, time_stop_dte: 10 }
+
+      - name: "protective_put_overlay"
+        type: "hedge"
+        legs:
+          - { side: "buy", right: "put", target_delta: 0.30 }
+        dte: { min: 30, max: 60 }
+        conditions: { requires_long_exposure: true }
+        sizing: { max_contracts: 3 }
+        exits: { profit_target_pct: 0.80, time_stop_dte: 7 }
+
+  # -------------------------------------------------------------------------
+  range:
+    description: >
+      Low ADX, compressed Bollinger bandwidth, price oscillating inside a
+      well-defined band. Harvest theta with delta-neutral, defined-risk,
+      premium-selling structures.
+    bias: "neutral"
+    playbooks:
+      - name: "iron_condor"
+        type: "iron_condor"
+        legs:
+          - { side: "sell", right: "put",  target_delta: 0.16 }
+          - { side: "buy",  right: "put",  target_delta: 0.08 }
+          - { side: "sell", right: "call", target_delta: 0.16 }
+          - { side: "buy",  right: "call", target_delta: 0.08 }
+        dte: { min: 21, max: 45 }
+        conditions: { iv_rank_min: 0.30, adx_max: 22 }
+        sizing: { max_contracts: 2, max_width_pct: 0.06 }
+        exits: { profit_target_pct: 0.50, stop_loss_multiple: 2.0, time_stop_dte: 14 }
+
+      - name: "iron_butterfly"
+        type: "iron_butterfly"
+        legs:
+          - { side: "sell", right: "put",  target_delta: 0.50 }
+          - { side: "buy",  right: "put",  target_delta: 0.15 }
+          - { side: "sell", right: "call", target_delta: 0.50 }
+          - { side: "buy",  right: "call", target_delta: 0.15 }
+        dte: { min: 14, max: 35 }
+        conditions: { iv_rank_min: 0.45, adx_max: 18 }
+        sizing: { max_contracts: 1, max_width_pct: 0.06 }
+        exits: { profit_target_pct: 0.35, stop_loss_multiple: 1.5, time_stop_dte: 10 }
+
+      - name: "short_put_spread_at_support"
+        type: "vertical_credit"
+        legs:
+          - { side: "sell", right: "put", target_delta: 0.20 }
+          - { side: "buy",  right: "put", target_delta: 0.10 }
+        dte: { min: 21, max: 40 }
+        conditions: { iv_rank_min: 0.30, near_support: true }
+        sizing: { max_contracts: 2, max_width_pct: 0.06 }
+        exits: { profit_target_pct: 0.55, stop_loss_multiple: 2.0, time_stop_dte: 10 }
+
+  # -------------------------------------------------------------------------
+  high_vol_event:
+    description: >
+      Elevated IV rank, wide ATR, or a known binary event inside the window.
+      Either buy convexity or stand aside. NEVER sell undefined-risk premium
+      into a binary event.
+    bias: "volatility"
+    playbooks:
+      - name: "long_straddle"
+        type: "straddle"
+        legs:
+          - { side: "buy", right: "call", target_delta: 0.50 }
+          - { side: "buy", right: "put",  target_delta: -0.50 }
+        dte: { min: 7, max: 30 }
+        conditions: { iv_rank_max: 0.55, event_within_days: 5 }
+        sizing: { max_contracts: 1, max_debit: 600 }
+        exits: { profit_target_pct: 0.75, stop_loss_pct: 0.50, time_stop_dte: 3 }
+
+      - name: "long_strangle"
+        type: "strangle"
+        legs:
+          - { side: "buy", right: "call", target_delta: 0.30 }
+          - { side: "buy", right: "put",  target_delta: -0.30 }
+        dte: { min: 14, max: 45 }
+        conditions: { iv_rank_max: 0.50, event_within_days: 10 }
+        sizing: { max_contracts: 2, max_debit: 500 }
+        exits: { profit_target_pct: 0.80, stop_loss_pct: 0.50, time_stop_dte: 5 }
+
+      - name: "broken_wing_butterfly"
+        type: "butterfly"
+        legs:
+          - { side: "buy",  right: "call", target_delta: 0.40 }
+          - { side: "sell", right: "call", target_delta: 0.25, quantity_multiple: 2 }
+          - { side: "buy",  right: "call", target_delta: 0.08 }
+        dte: { min: 21, max: 45 }
+        conditions: { iv_rank_min: 0.55 }
+        sizing: { max_contracts: 1 }
+        exits: { profit_target_pct: 0.50, time_stop_dte: 10 }
+
+      - name: "stand_aside"
+        type: "no_trade"
+        legs: []
+        dte: { min: 0, max: 0 }
+        conditions: { event_within_days: 1 }
+        sizing: { max_contracts: 0 }
+        exits: {}
+        note: >
+          Explicitly modelled so the desk can *choose* not to trade and log the
+          reason. Capital preservation into a binary event is a valid decision.
+
+# ---------------------------------------------------------------------------
+# Structures the Risk Guard rejects unconditionally, whatever any agent says.
+# ---------------------------------------------------------------------------
+forbidden:
+  - "naked_short_call"
+  - "naked_short_put"
+  - "ratio_spread_net_short"
+  - "short_straddle"
+  - "short_strangle"
+  - "calendar_net_short_vega_into_earnings"
+
+# ---------------------------------------------------------------------------
+# Not implemented, deliberately.
+#
+# Multi-expiry structures (diagonals, calendars) are absent from this library
+# because the desk derives max loss, max profit, and breakevens from a
+# SINGLE-EXPIRY payoff curve. A diagonal's long leg outlives the short one, so
+# that curve does not describe it. Rather than ship a structure whose risk the
+# Risk Guard cannot verify, the desk does not trade it. Adding one means
+# extending the payoff engine first.
+# ---------------------------------------------------------------------------
