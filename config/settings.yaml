@@ -28,23 +28,26 @@ alpaca:
 # ---------------------------------------------------------------------------
 llm:
   api_key: "${ANTHROPIC_API_KEY:-}"
-  default_model: "claude-opus-5"
+  default_model: "claude-sonnet-5"
   max_tokens: 8000
   effort: "high"                              # low | medium | high | xhigh | max
   thinking: true                              # adaptive thinking
   timeout_seconds: 120
-  # Per-agent overrides. Drop to "claude-sonnet-5" to trade depth for spend.
+  # Per-agent overrides. Research agents gather and summarise evidence, which
+  # Sonnet handles at a fraction of the spend; the seats that exercise judgement
+  # — the committee that accepts or vetoes a trade, the coach that critiques the
+  # desk's process, and the orchestrator that sequences the cycle — stay on Opus.
   models:
     orchestrator: "claude-opus-5"
-    fundamental_analyst: "claude-opus-5"
-    technical_analyst: "claude-opus-5"
-    sentiment_analyst: "claude-opus-5"
-    vol_options_strategist: "claude-opus-5"
-    regime_agent: "claude-opus-5"
-    event_agent: "claude-opus-5"
     critic: "claude-opus-5"
     coach: "claude-opus-5"
-    storyteller: "claude-opus-5"
+    fundamental_analyst: "claude-sonnet-5"
+    technical_analyst: "claude-sonnet-5"
+    sentiment_analyst: "claude-sonnet-5"
+    vol_options_strategist: "claude-sonnet-5"
+    regime_agent: "claude-sonnet-5"
+    event_agent: "claude-sonnet-5"
+    storyteller: "claude-sonnet-5"
 
 # ---------------------------------------------------------------------------
 # Trading universe — deliberately small, liquid, options-rich.
