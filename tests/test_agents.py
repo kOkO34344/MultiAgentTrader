@@ -453,3 +453,72 @@ def test_range_playbooks_are_gated_by_trend_strength():
     trending = {"SPY": {**SNAPSHOT["SPY"], "chain": make_chain("SPY", 580.0)}}
     assert SNAPSHOT["SPY"]["indicators"]["adx"] > 22
     assert VolOptionsStrategist().build_structures(trending, playbooks_for_regime("range")) == []
+
+
+def test_strategist_run_accepts_the_orchestrators_playbook_shape():
+    """Regression: the orchestrator fans out playbook *names*, not dicts.
+
+    ``build_context`` used to call ``.get("name")`` on each entry, so every live
+    cycle raised ``'str' object has no attribute 'get'`` and the strategist
+    abstained. Agents never raise, so this surfaced only as a silent abstention
+    while the desk quietly lost its IV-rank playbook selection.
+    """
+    names = [p["name"] for p in playbooks_for_regime("range")]
+    result = VolOptionsStrategist().run(
+        regime="range",
+        playbooks=names,
+        snapshot=RANGE_SNAPSHOT,
+        vol_surfaces={"SPY": RANGE_SNAPSHOT["SPY"]["vol_surface"]},
+        as_of="2026-08-22T11:29:22+00:00",
+    )
+
+    assert result.ok, result.error
+    assert result.mode != "error"
+    assert set(result.output["selected_playbooks"]) <= set(names)
+
+
+def test_strategist_run_still_accepts_full_playbook_dicts():
+    """The dict shape stays valid so either caller contract works."""
+    playbooks = playbooks_for_regime("range")
+    result = VolOptionsStrategist().run(
+        regime="range",
+        playbooks=playbooks,
+        snapshot=RANGE_SNAPSHOT,
+        vol_surfaces={"SPY": RANGE_SNAPSHOT["SPY"]["vol_surface"]},
+        as_of="2026-08-22T11:29:22+00:00",
+    )
+
+    assert result.ok, result.error
+    assert set(result.output["selected_playbooks"]) <= {p["name"] for p in playbooks}
+
+
+def _select(regime: str, iv_rank: float) -> list[str]:
+    strategist = VolOptionsStrategist()
+    context = strategist.build_context(
+        regime=regime,
+        playbooks=[p["name"] for p in playbooks_for_regime(regime)],
+        vol_surfaces={"SPY": {"iv_rank": iv_rank, "atm_iv": 0.2}},
+        snapshot={"SPY": {"indicators": {}}},
+    )
+    return strategist.mock_output(context)["selected_playbooks"]
+
+
+def test_premium_selling_is_gated_on_iv_rank_not_playbook_spelling():
+    """`short_put_spread_at_support` is a vertical_credit despite its name.
+
+    The offline selector used to sniff the name for "credit"/"condor"/"butterfly",
+    so this playbook read as premium-*buying* and got picked when IV was cheap —
+    selling cheap premium, the exact inverse of the desk's stated edge.
+    """
+    cheap = _select("range", iv_rank=0.05)
+    rich = _select("range", iv_rank=0.85)
+
+    assert "short_put_spread_at_support" in rich
+    assert "short_put_spread_at_support" not in cheap
+    assert {"iron_condor", "iron_butterfly"} <= set(rich)
+
+
+def test_stand_aside_is_never_offered_as_a_structure():
+    """`no_trade` is the absence of a view, so it must not be 'selected'."""
+    for rank in (0.05, 0.5, 0.95):
+        assert "stand_aside" not in _select("high_vol_event", iv_rank=rank)
