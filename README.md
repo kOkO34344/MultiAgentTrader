@@ -179,8 +179,12 @@ with machine-readable reason codes. Two behaviours are worth calling out:
 Eight tools, schemas exactly as specified, served over stdio:
 
 ```bash
-claude mcp add options-desk -- desk mcp-server
+# Use the venv's absolute path: MCP servers are spawned outside an activated
+# venv, and `desk` is not installed on the global PATH.
+claude mcp add options-desk -- "$PWD/.venv/bin/desk" mcp-server
 ```
+
+Verify with `claude mcp list` — the entry should report `✔ Connected`.
 
 | Tool | Purpose |
 |---|---|
