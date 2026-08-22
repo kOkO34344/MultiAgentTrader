@@ -210,3 +210,70 @@ def test_a_bad_order_spec_fails_that_order_only(engine):
     )
     assert results[0]["ok"] is False
     assert results[1]["ok"] is True, "one malformed order must not abort the batch"
+
+
+# ---------------------------------------------------------------------------
+# `limit` means "the most recent N bars"
+# ---------------------------------------------------------------------------
+
+
+class _CapturingBars:
+    """Stands in for the Alpaca stock-data client, recording the request."""
+
+    def __init__(self, bars):
+        self._bars = bars
+        self.request = None
+
+    def get_stock_bars(self, request):
+        self.request = request
+
+        class _Response:
+            data = {"SPY": self._bars}
+
+        return _Response()
+
+
+def _bar(day: int):
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        timestamp=datetime(2026, 8, day, tzinfo=UTC),
+        open=1.0, high=2.0, low=0.5, close=float(day), volume=10, vwap=1.0, trade_count=1,
+    )
+
+
+def _market_data_with(monkeypatch, bars):
+    from desk.alpaca.market_data import MarketData
+
+    md = MarketData()
+    stub = _CapturingBars(bars)
+    monkeypatch.setattr(type(md.clients), "stock_data", property(lambda self: stub))
+    monkeypatch.setattr(md.clients, "call", lambda fn, *a, **k: fn(*a, **k))
+    return md, stub
+
+
+def test_limit_without_start_returns_the_most_recent_bars(monkeypatch):
+    """Regression: `limit` alone used to send start=None and return nothing.
+
+    Alpaca counts `limit` forward from `start`, so the fix synthesises the
+    default window and slices the tail — otherwise `limit=1` would report the
+    *oldest* bar in the lookback as the latest price.
+    """
+    md, stub = _market_data_with(monkeypatch, [_bar(d) for d in (17, 18, 19, 20, 21)])
+
+    bars = md.get_equity_bars(["SPY"], "1D", limit=2)["SPY"]
+
+    assert [b["close"] for b in bars] == [20.0, 21.0]
+    # The window must be requested from the API, with limit applied locally.
+    assert stub.request.start is not None
+    assert stub.request.limit is None
+
+
+def test_explicit_start_still_delegates_limit_to_the_api(monkeypatch):
+    """An explicit window keeps the API's own paging semantics."""
+    md, stub = _market_data_with(monkeypatch, [_bar(d) for d in (17, 18)])
+
+    md.get_equity_bars(["SPY"], "1D", start="2026-08-17", limit=2)
+
+    assert stub.request.limit == 2

@@ -80,7 +80,7 @@ anyway.**
 - [ ] `desk backtest` results logged in the experiment registry
 - [ ] Dashboard screenshots captured (P&L curve, a decision trace)
 - [ ] Up to 5 X/LinkedIn links collected from `social/daily_posts/`
-- [ ] MCP registration documented and verified: `claude mcp add options-desk -- desk mcp-server`
+- [ ] MCP registration documented and verified: `claude mcp add options-desk -- "$PWD/.venv/bin/desk" mcp-server` (absolute path — the server is spawned outside the venv), then `claude mcp list` shows `✔ Connected`
 - [ ] The pitch: *the agents supply judgement, the guard supplies limits, and neither is allowed to do the other's job*
 
 ## Judging criteria, and where to point

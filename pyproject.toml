@@ -43,7 +43,11 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+# "." puts the repo root on sys.path so `from tests.conftest import ...` resolves.
+# Without it only `python -m pytest` worked (that form prepends the CWD itself);
+# the bare `pytest` CI runs used made every module using that import fail to
+# collect, so the suite never actually ran in CI.
+pythonpath = ["src", "."]
 asyncio_mode = "auto"
 filterwarnings = ["ignore::DeprecationWarning"]
 

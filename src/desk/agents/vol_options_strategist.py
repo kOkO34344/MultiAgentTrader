@@ -17,7 +17,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from desk.agents.base import LLMAgent
-from desk.utils.config_loader import Settings, get_settings
+from desk.utils.config_loader import Settings, get_settings, playbooks_for_regime
 from desk.utils.logging import get_logger
 from desk.utils.math_utils import probability_itm, round_to_tick
 
@@ -25,6 +25,13 @@ logger = get_logger("agents.vol")
 
 CONTRACT_MULTIPLIER = 100
 PAYOFF_GRID_POINTS = 1200
+
+#: Playbook ``type`` values that open a net-short-premium position. Sold premium
+#: is the desk's edge only when implied vol is rich, so the offline selector gates
+#: on this rather than on substrings in the playbook name.
+PREMIUM_SELLING_TYPES = frozenset(
+    {"vertical_credit", "iron_condor", "iron_butterfly", "butterfly"}
+)
 
 
 # ---------------------------------------------------------------------------
@@ -524,11 +531,35 @@ class VolOptionsStrategist(LLMAgent):
         super().__init__(*args, **kwargs)
         self.builder = StructureBuilder(self.settings)
 
+    @staticmethod
+    def _resolve_playbooks(regime: Any, playbooks: Any) -> list[dict[str, Any]]:
+        """Normalise the ``playbooks`` kwarg to full dicts.
+
+        The orchestrator fans out playbook *names* while ``build_structures``
+        takes the full dicts. Accept either — a shape change must not make the
+        strategist abstain — and re-read the regime's playbooks when only names
+        arrive, so the declared ``type`` is available for classification.
+        """
+        entries = list(playbooks or [])
+        if not entries:
+            return []
+        if not any(isinstance(entry, str) for entry in entries):
+            return [entry for entry in entries if isinstance(entry, dict)]
+
+        names = {entry if isinstance(entry, str) else entry.get("name") for entry in entries}
+        known = {p["name"]: p for p in playbooks_for_regime(str(regime or ""))}
+        return [known.get(name) or {"name": name} for name in sorted(names) if name]
+
     def build_context(self, **kwargs: Any) -> dict[str, Any]:
+        playbooks = self._resolve_playbooks(kwargs.get("regime"), kwargs.get("playbooks"))
         return {
             "regime": kwargs.get("regime"),
             "as_of": kwargs.get("as_of"),
-            "playbooks_for_regime": [p.get("name") for p in kwargs.get("playbooks", [])],
+            "playbooks_for_regime": [p["name"] for p in playbooks],
+            # Playbooks declare an authoritative ``type``; the offline selector uses
+            # it instead of sniffing the name for "credit"/"condor"/"butterfly",
+            # which mislabelled `short_put_spread_at_support` (a vertical_credit).
+            "playbook_types": {p["name"]: p.get("type", "") for p in playbooks},
             "vol_surfaces": kwargs.get("vol_surfaces", {}),
             "indicators": {
                 ticker: data.get("indicators", {})
@@ -545,6 +576,7 @@ class VolOptionsStrategist(LLMAgent):
         """Offline: pick playbooks by IV rank using the same rules as the persona."""
         surfaces = context.get("vol_surfaces") or {}
         available = context.get("playbooks_for_regime") or []
+        types = context.get("playbook_types") or {}
         notes, selected = [], []
 
         for ticker, surface in sorted(surfaces.items()):
@@ -563,13 +595,15 @@ class VolOptionsStrategist(LLMAgent):
                 continue
             rich = rank >= 0.5
             for name in available:
-                is_credit = "credit" in name or "condor" in name or "butterfly" in name
-                if (rich and is_credit) or (not rich and not is_credit):
+                if types.get(name) == "no_trade":
+                    continue  # `stand_aside` is the absence of a structure, not a view
+                if self._sells_premium(name, types.get(name)) == rich:
                     if name not in selected:
                         selected.append(name)
 
         if not selected:
-            selected = available[:1]
+            tradeable = [n for n in available if types.get(n) != "no_trade"]
+            selected = tradeable[:1]
 
         return {
             "vol_regime_overview": (
@@ -580,6 +614,18 @@ class VolOptionsStrategist(LLMAgent):
             "selected_playbooks": selected,
             "commentary": "Deterministic offline selection — no Claude key configured.",
         }
+
+    @staticmethod
+    def _sells_premium(name: str, playbook_type: str | None) -> bool:
+        """Whether a playbook is net short premium.
+
+        Driven by the playbook's declared ``type``. The name heuristic survives
+        only as a fallback for a playbook that declares no type — reading intent
+        out of a name is what mislabelled a `vertical_credit` as premium-buying.
+        """
+        if playbook_type:
+            return playbook_type in PREMIUM_SELLING_TYPES
+        return "credit" in name or "condor" in name or "butterfly" in name
 
     @staticmethod
     def _iv_vs_realised(surface: dict[str, Any], context: dict[str, Any], ticker: str) -> str:

@@ -378,6 +378,10 @@ def test_a_full_cycle_runs_end_to_end(orchestrator):
         "technical_analyst", "sentiment_analyst", "vol_options_strategist", "event_agent"
     }
     assert result.summary
+    # "Consulted" counts agents that errored and abstained, so assert the stronger
+    # property too: a healthy cycle has no agent failing outright. Without this a
+    # crashing agent degrades the desk silently and every assertion above still holds.
+    assert result.agents_abstained == []
 
 
 def test_a_cycle_writes_a_complete_decision_trace(orchestrator, store):
