@@ -155,9 +155,16 @@ class MarketData:
         if not symbol_list:
             return {}
 
-        if start is None and limit is None:
+        # Alpaca counts `limit` *forward* from `start`, but every caller means it
+        # as "the most recent N bars". With no `start` the API returned nothing at
+        # all, so `limit=1` silently yielded zero bars — which is what broke
+        # `get_last_price`'s close fallback. Synthesise the window, then slice the
+        # tail locally so `limit` keeps its intended meaning.
+        tail: int | None = None
+        if start is None:
             lookback = self.settings.regime.lookback_days
             start = datetime.utcnow() - timedelta(days=int(lookback * 1.8) + 10)
+            tail, limit = limit, None
 
         request = StockBarsRequest(
             symbol_or_symbols=symbol_list,
@@ -171,6 +178,8 @@ class MarketData:
 
         raw = getattr(response, "data", response) or {}
         result = {symbol: [_bar_to_dict(bar) for bar in bars] for symbol, bars in raw.items()}
+        if tail:
+            result = {symbol: bars[-tail:] for symbol, bars in result.items()}
         logger.info(
             "equity_bars_fetched",
             extra={

@@ -104,7 +104,9 @@ def main() -> None:
     import asyncio
 
     # Logs must go to a file, never stdout — stdout is the MCP transport.
-    setup_logging(console=False, filename="mcp.jsonl")
+    # ``force`` is required: importing this module already configured logging
+    # with a console handler, so without it this call is a silent no-op.
+    setup_logging(console=False, filename="mcp.jsonl", force=True)
     asyncio.run(run_stdio())
 
 

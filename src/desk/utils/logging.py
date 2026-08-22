@@ -45,11 +45,18 @@ def setup_logging(
     log_dir: str | Path = "logs",
     console: bool = True,
     filename: str = "desk.jsonl",
+    force: bool = False,
 ) -> logging.Logger:
-    """Configure root logging once. Safe to call repeatedly."""
+    """Configure root logging once. Safe to call repeatedly.
+
+    ``force`` re-applies the configuration even if logging was already set up.
+    Any module-level ``get_logger`` call configures logging on import with the
+    console handler on, so an entry point that must own the stream — the stdio
+    MCP server, whose stdout *is* the transport — has to be able to override it.
+    """
     global _CONFIGURED
     root = logging.getLogger("desk")
-    if _CONFIGURED:
+    if _CONFIGURED and not force:
         return root
 
     root.setLevel(getattr(logging, str(level).upper(), logging.INFO))
@@ -68,10 +75,15 @@ def setup_logging(
 
     if console:
         try:
+            from rich.console import Console
             from rich.logging import RichHandler
 
+            # stderr, so logs can never corrupt a stdout protocol stream.
             handler: logging.Handler = RichHandler(
-                rich_tracebacks=True, show_path=False, markup=False
+                console=Console(stderr=True),
+                rich_tracebacks=True,
+                show_path=False,
+                markup=False,
             )
             handler.setFormatter(logging.Formatter("%(message)s", datefmt="%H:%M:%S"))
         except ImportError:  # pragma: no cover
